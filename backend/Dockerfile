@@ -1,24 +1,32 @@
 
+# syntax=docker/dockerfile:1
+
 # --- Build stage ---
 FROM maven:3.9-eclipse-temurin-25 AS build
 
 WORKDIR /app
 
+# Copy Maven configuration
 COPY pom.xml ./
+COPY settings.xml /root/.m2/settings.xml
 
-# Maven dependency download with retry and persistent cache
+# Download dependencies with retry and persistent cache
 RUN --mount=type=cache,target=/root/.m2 \
     for i in 1 2 3 4 5; do \
       if mvn -B -ntp dependency:go-offline; then \
         break; \
       fi; \
-      if [ "$i" -eq 5 ]; then exit 1; fi; \
+      if [ "$i" -eq 5 ]; then \
+        echo "Maven dependency download failed after 5 attempts"; \
+        exit 1; \
+      fi; \
       echo "Retrying Maven download in 30 seconds..."; \
       sleep 30; \
     done
 
 COPY src ./src
 
+# Build application (CI handles full test validation)
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -q -B -ntp clean package -DskipTests
 
@@ -40,6 +48,6 @@ EXPOSE 8080
 ENV SPRING_PROFILES_ACTIVE=production
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s \
-  CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+    CMD wget -qO- http://localhost:8080/actuator/health || exit 1
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
