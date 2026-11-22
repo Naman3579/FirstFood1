@@ -1,0 +1,90 @@
+# LOCAL DEVELOPMENT ONLY. Do not use this file, its default database password or the `local` Spring profile in any
+# shared, staging or production environment: they ship throwaway credentials and a throwaway JWT secret on purpose.
+# Production-shaped wiring (3 networks, Redis password, only nginx published) is frontend/deploy/docker-compose.prod.yml.
+#
+# Optional: put DEV_DB_PASSWORD=<anything> in infra/.env to avoid the default password even locally.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: firstfood
+      POSTGRES_USER: firstfood
+      POSTGRES_PASSWORD: ${DEV_DB_PASSWORD:-firstfood}
+    networks: [data]
+    ports:
+      - "127.0.0.1:5432:5432"   # loopback only: never publish the database to the network
+    volumes:
+      - firstfood_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firstfood"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Valkey (BSD-licensed, Linux Foundation-maintained Redis fork) for local
+  # dev - wire-compatible with Spring Data Redis / ioredis clients.
+  # Production still targets Upstash Redis per architecture.md's frozen
+  # tech stack; this substitution is local-only.
+  redis:
+    image: valkey/valkey:8-alpine
+    networks: [data]
+    ports:
+      - "127.0.0.1:6379:6379"   # loopback only
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ../backend
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      # Overrides the throwaway value in application-local.yml, so DEV_DB_PASSWORD really changes the password.
+      SPRING_DATASOURCE_PASSWORD: ${DEV_DB_PASSWORD:-firstfood}
+      # Leave EMPTY: X-Forwarded-For is then ignored and the client IP is the TCP peer (safe default).
+      # Only list the proxy hops' CIDRs once the backend is reachable from them ALONE - see docs/OPERATIONS.md.
+      TRUSTED_PROXY_CIDRS: ""
+      # F-05: off locally. To try the challenge end to end use Cloudflare's published TEST keys (see docs/OPERATIONS.md):
+      # set BOT_CHALLENGE_ENABLED=true and TURNSTILE_SECRET_KEY in infra/.env, plus NEXT_PUBLIC_TURNSTILE_SITE_KEY below.
+      BOT_CHALLENGE_ENABLED: ${BOT_CHALLENGE_ENABLED:-false}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+    ports:
+      # Loopback only, for local curl/debugging. The frontend reaches the backend over the compose network
+      # (http://backend:8080), so this publication is not needed for the app - and must NOT be widened to
+      # 0.0.0.0 / a public interface: the same-origin proxy is not a security boundary if the backend is public.
+      - "127.0.0.1:8080:8080"
+    networks: [app, data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        # Same-origin proxy mode: the browser calls http://localhost:3000/api/v1/...
+        # and Next forwards it to the backend over the compose network. Both values
+        # are BUILD-TIME. "backend" is the compose service name - inside the
+        # frontend container "localhost" would be the frontend itself.
+        # Rollback to direct mode: NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+        NEXT_PUBLIC_API_BASE_URL: ""
+        BACKEND_ORIGIN: http://backend:8080
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+    ports:
+      - "127.0.0.1:3000:3000"   # loopback only (F-10): do not expose the dev frontend to the LAN
+    networks: [app]             # not on `data`: the frontend has no business reaching Postgres or Redis
+    depends_on:
+      - backend
+
+networks:
+  app: {}
+  data: {}   # NOT `internal` here: Docker cannot publish the loopback debug ports of a container that is only on an
+             # internal network. Production (frontend/deploy/docker-compose.prod.yml) does mark `data` internal.
+
+volumes:
+  firstfood_postgres_data:
