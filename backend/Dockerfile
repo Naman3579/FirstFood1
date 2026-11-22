@@ -6,14 +6,14 @@ FROM maven:3.9-eclipse-temurin-25 AS build
 
 WORKDIR /app
 
-# Copy Maven configuration
 COPY pom.xml ./
-COPY settings.xml /root/.m2/settings.xml
+COPY settings.xml /usr/share/maven/ref/settings-docker.xml
 
-# Download dependencies with retry and persistent cache
+# Download dependencies using Google Maven mirror
 RUN --mount=type=cache,target=/root/.m2 \
     for i in 1 2 3 4 5; do \
-      if mvn -B -ntp dependency:go-offline; then \
+      if mvn -s /usr/share/maven/ref/settings-docker.xml \
+          -B -ntp dependency:go-offline; then \
         break; \
       fi; \
       if [ "$i" -eq 5 ]; then \
@@ -26,9 +26,10 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 COPY src ./src
 
-# Build application (CI handles full test validation)
+# Build application
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -q -B -ntp clean package -DskipTests
+    mvn -s /usr/share/maven/ref/settings-docker.xml \
+        -q -B -ntp clean package -DskipTests
 
 # --- Runtime stage ---
 FROM eclipse-temurin:25-jre-alpine
