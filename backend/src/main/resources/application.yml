@@ -133,7 +133,11 @@ app:
     issuer: firstfood
     audience: firstfood-api
     access-token-ttl-minutes: 15
+<<<<<<< HEAD
     refresh-token-ttl-days: 90   # "stay signed in": every refresh issues a new token+cookie, so this is a rolling 90 days of inactivity
+=======
+    refresh-token-ttl-days: 30
+>>>>>>> origin/main
     # F-11: a rotated refresh token replayed within this many seconds is only refused; later, it revokes the whole session.
     refresh-reuse-grace-seconds: 10
   # Launch default false: a phone number can be added without a code until SMS/DLT is ready. Set PHONE_VERIFICATION_REQUIRED=true

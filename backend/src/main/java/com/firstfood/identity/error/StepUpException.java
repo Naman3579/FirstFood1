@@ -29,10 +29,13 @@ public class StepUpException extends DomainException {
         return new StepUpException("STEP_UP_CODE_EXPIRED",
                 "That verification code has expired or was already used. Request a new one.", HttpStatus.BAD_REQUEST);
     }
+<<<<<<< HEAD
 
     public static StepUpException noChannel() {
         return new StepUpException("STEP_UP_NO_CHANNEL",
                 "Add and verify an email address on your account first, so we can send you a verification code.",
                 HttpStatus.CONFLICT);
     }
+=======
+>>>>>>> origin/main
 }

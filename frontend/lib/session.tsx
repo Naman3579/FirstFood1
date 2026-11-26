@@ -10,8 +10,12 @@ import { env } from "./env";
  * One place that owns the signed-in session.
  *
  * Token storage: the short-lived ACCESS token lives in memory only - never localStorage/sessionStorage. The refresh
+<<<<<<< HEAD
  * token is whatever the backend hands back: an HttpOnly cookie (cookie mode - a reload restores the session; the cookie
  * lasts 90 days and is renewed on every refresh, so active people stay signed in like on Flipkart) or a value
+=======
+ * token is whatever the backend hands back: an HttpOnly cookie (cookie mode - a reload restores the session) or a value
+>>>>>>> origin/main
  * in the response body, which is then held in memory only (a reload signs the person out).
  *
  * One session serves both portals: the same phone number can be registered as a customer, as staff, or both. Which
@@ -47,6 +51,7 @@ const ACCESS_REFRESH_MS = 12 * 60 * 1000;
 type Restored = { accessToken: string; refreshToken: string | null; profile: Profile } | null;
 let restoreInFlight: Promise<Restored> | null = null;
 
+<<<<<<< HEAD
 /** Waits, then resolves. Used to retry a restore that failed for a reason other than "your session is dead". */
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -82,6 +87,24 @@ function restoreSession(): Promise<Restored> {
   restoreInFlight ??= restoreWithRetry().finally(() => {
     setTimeout(() => (restoreInFlight = null), 0);
   });
+=======
+/** Runs once per page load even though React StrictMode runs effects twice in development. */
+function restoreSession(): Promise<Restored> {
+  restoreInFlight ??= authApi
+    .refresh()
+    .then(async (tokens) => ({
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      profile: await authApi.getProfile(tokens.accessToken),
+    }))
+    .catch((err) => {
+      if (err instanceof ApiError && err.status === 401) void authApi.logout().catch(() => undefined);
+      return null;
+    })
+    .finally(() => {
+      setTimeout(() => (restoreInFlight = null), 0);
+    });
+>>>>>>> origin/main
   return restoreInFlight;
 }
 

@@ -23,9 +23,12 @@ public interface AccountLookupService {
     /** VERIFIED phone numbers for the given account ids (unknown ids, email-only accounts and unproven numbers are absent). Safe to base access decisions on. */
     Map<UUID, String> findPhonesByIds(Collection<UUID> accountIds);
 
+<<<<<<< HEAD
     /** VERIFIED (code-proven) email addresses for the given account ids; accounts with none are absent. Safe to base access decisions on. */
     Map<UUID, String> findVerifiedEmailsByIds(Collection<UUID> accountIds);
 
+=======
+>>>>>>> origin/main
     /**
      * Phone numbers to show a CUSTOMER-facing screen or to match a provider's invitation against: verified numbers
      * always, and unverified ones only while {@code app.phone.verification-required} is off. Never use this to decide

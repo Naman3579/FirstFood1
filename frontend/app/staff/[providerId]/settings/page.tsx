@@ -132,7 +132,11 @@ export default function SettingsPage() {
           onClose={() => { setClosing(false); setStepUpCode(""); setCodeError(null); }}
           onConfirm={async () => {
             setCodeError(null);
+<<<<<<< HEAD
             if (stepUpCode.length !== 6) return setCodeError("Enter the 6-digit verification code we sent you.");
+=======
+            if (stepUpCode.length !== 6) return setCodeError("Enter the 6-digit code we texted you.");
+>>>>>>> origin/main
             if (await patch({ status: "CLOSED", closureReason: reason.trim() || undefined, stepUpCode }, "Provider closed.")) {
               setClosing(false);
               setStepUpCode("");
