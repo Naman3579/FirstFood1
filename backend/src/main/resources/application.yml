@@ -1,0 +1,176 @@
+spring:
+  application:
+    name: firstfood-v2
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  mvc:
+    async:
+      request-timeout: 30s
+  data:
+    redis:
+      # Bounded waits: the default command timeout is 60s, which would let a stalled Redis hold request threads.
+      # The rate limiter treats a timeout as "store unavailable" and applies its fail-closed / local-fallback rules.
+      timeout: 1s
+      connect-timeout: 1s
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+  tomcat:
+    # Slow-client / slowloris protection: do not let a connection sit idle for the 60s default.
+    connection-timeout: 10s
+    max-http-form-post-size: 64KB
+  # Deliberately NOT setting forward-headers-strategy (reverse-proxy migration, R-08/R-10).
+  # Nothing here reads the client IP, and no endpoint emits redirects or absolute URLs built from
+  # the request, so forwarded headers buy nothing today. Turning "framework"/"native" on makes
+  # Spring TRUST X-Forwarded-* from whoever sends them - any caller, since the backend is publicly
+  # reachable - so only enable it together with locking ingress down to the proxy. Do that BEFORE
+  # adding any per-IP rate limit or IP logging.
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    distribution:
+      # Latency histograms for http.server.requests so p95/p99 can be computed by the metrics backend (SLOs).
+      percentiles-histogram:
+        "[http.server.requests]": true
+      slo:
+        "[http.server.requests]": 100ms,300ms,1s,3s
+
+app:
+  # F-03 knobs (the values below are the built-in defaults, listed here so they are visible and tunable per environment).
+  membership:
+    invitation-ttl-days: 7                         # how long a customer has to accept an invitation
+    max-invitations-per-provider-per-day: 100      # every NEW invitation probes a phone number: budget them
+  provider:
+    max-owned-per-account: 10                      # providers one account may own at once
+    max-created-per-account-per-day: 10            # throwaway-account provider mass-production
+    max-phone-lookups-per-day: 50                  # role assignment / ownership transfer look a phone up (F-08 removes this)
+  http:
+    # Largest request body accepted. The API exchanges small JSON documents only (no uploads).
+    max-request-body-bytes: 65536
+  rate-limit:
+    # Initial guardrails for a small India-focused pilot - tune from real traffic (docs/OPERATIONS.md).
+    # Windows are FIXED windows; Retry-After is the time left in the current window.
+    enabled: true
+    key-prefix: rl
+    # CIDRs/IPs of the reverse-proxy hops allowed to speak for the client in X-Forwarded-For. LEAVE EMPTY until the
+    # backend only accepts traffic from those hops (docs/OPERATIONS.md section 3) - otherwise anyone can forge their IP.
+    trusted-proxies: ${TRUSTED_PROXY_CIDRS:}
+    # Every SMS costs money: tight per-IP caps (the per-phone cap is app.otp.request-rate-limit-per-hour below).
+    otp-request-ip-burst: { limit: 5, window: 1m }
+    otp-request-ip-hourly: { limit: 20, window: 1h }
+    otp-verify-ip: { limit: 30, window: 10m }
+    # FAILED verifications only. Pair = this phone from this address; phone = this phone from anywhere.
+    otp-verify-failures-phone-ip: { limit: 5, window: 10m }
+    otp-verify-failures-phone: { limit: 10, window: 1h }
+    auth-ip: { limit: 60, window: 1m }
+    refresh-per-token: { limit: 10, window: 1m }
+    # Generous on purpose: one public IP can be a whole college, hostel or carrier NAT.
+    api-ip: { limit: 1200, window: 1m }
+    account-read: { limit: 300, window: 1m }
+    account-write: { limit: 60, window: 1m }
+  business:
+    # The calendar day that dates such as a subscription's start and expiry are read in (see
+    # BusinessCalendar). One zone for the whole India-only pilot; per-provider zones are a later,
+    # deliberate decision.
+    time-zone: Asia/Kolkata
+  subscription:
+    # F-06: a customer's own purchase is a REQUEST until staff confirm it. These stop unconfirmed requests from holding a
+    # provider's capacity. After pending-ttl a request no longer counts toward capacity and the hourly job closes it
+    # (EXPIRED, subscription CANCELLED); a customer account may wait on at most max-pending-per-account at once.
+    pending-ttl: ${SUBSCRIPTION_PENDING_TTL:48h}
+    max-pending-per-account: ${SUBSCRIPTION_MAX_PENDING_PER_ACCOUNT:3}
+  jobs:
+    # Phase 10 background jobs (lifecycle package). Every instance schedules every job; the job_run lease makes sure
+    # only one actually runs it. Crons are Spring 6-field (sec min hour day month weekday) in the business time zone.
+    # Frequent on purpose: every job is idempotent, so a missed run is made up within the hour.
+    enabled: ${JOBS_ENABLED:true}
+    lease-duration: 5m
+    batch-size: 100
+    otp-retention: 24h
+    session-retention: 7d
+    expiry-cron: "0 5 * * * *"
+    extension-cron: "0 20 * * * *"
+    otp-cleanup-cron: "0 30 3 * * *"
+    session-cleanup-cron: "0 40 3 * * *"
+    pending-expiry-cron: "0 10 * * * *"   # F-06: close unconfirmed subscription requests past app.subscription.pending-ttl
+  auth:
+    refresh-cookie:
+      # Used only when the browser opts in with X-Refresh-Mode: cookie (same-origin proxy mode).
+      name: ff_refresh
+      # Production must send it over HTTPS only. application-local.yml / -test.yml relax this for plain http.
+      secure: true
+    # F-12: the old portal-less POST /auth/otp/verify. false = it signs in existing accounts only and never creates one
+    # (new users go through /auth/{portal}/signup). Local dev and the test suite switch it on as a one-call login.
+    legacy-login:
+      register-new-accounts: false
+  jwt:
+    # No default on purpose (FirstFood_V2_Phase1_Review.md #9): missing
+    # JWT_SECRET must fail application startup, not silently fall back to
+    # a value anyone can read in this repo. Local/test profiles supply
+    # their own value: application-local.yml generates a random one per start, the test profile (src/test/resources)
+    # uses a fixed throwaway. The secret must be at least 32 bytes (JwtSecretPolicy); startup fails otherwise.
+    secret: ${JWT_SECRET}
+    # F-17: carried in every access token and required when parsing one (JwtSecretPolicy / TokenService).
+    issuer: firstfood
+    audience: firstfood-api
+    access-token-ttl-minutes: 15
+    refresh-token-ttl-days: 90   # "stay signed in": every refresh issues a new token+cookie, so this is a rolling 90 days of inactivity
+    # F-11: a rotated refresh token replayed within this many seconds is only refused; later, it revokes the whole session.
+    refresh-reuse-grace-seconds: 10
+  # Launch default false: a phone number can be added without a code until SMS/DLT is ready. Set PHONE_VERIFICATION_REQUIRED=true
+  # then (and enable phone sign-in in the frontend); numbers must then be proven with a code. See PhoneProperties.
+  phone:
+    verification-required: ${PHONE_VERIFICATION_REQUIRED:false}
+  otp:
+    ttl-minutes: 5
+    max-attempts: 5
+    request-rate-limit-per-hour: 5
+  # F-05 (SMS pumping). Every OTP SMS costs money, so WHERE it may go and HOW MUCH may be spent are configuration.
+  sms:
+    # Country calling codes (digits, no '+') OTP SMS may be sent to. The pilot is India only. Adding a code is a business
+    # decision: also allow that country in the Brevo account, or Brevo will refuse the send (docs/OPERATIONS.md).
+    allowed-country-codes: ${SMS_ALLOWED_COUNTRY_CODES:91}
+    # Site-wide circuit breaker, shared by every replica through Redis. Size them from real pilot traffic: the pilot's
+    # ~50 customers need a few dozen OTPs a day, so the defaults leave generous headroom yet cap a pumping attack.
+    # Hourly trips first (a burst cannot burn the whole day); daily is the hard ceiling. Reaching either returns 503
+    # SMS_TEMPORARILY_UNAVAILABLE until the window reopens.
+    hourly-budget: ${SMS_HOURLY_BUDGET:60}
+    daily-budget: ${SMS_DAILY_BUDGET:300}
+    # One WARN log + firstfood.sms.budget.alerts metric when this share of the daily budget is used.
+    alert-percent: ${SMS_ALERT_PERCENT:70}
+  # F-05: Cloudflare Turnstile in front of the PUBLIC OTP request. Off by default here (local dev, tests); the production
+  # profile turns it ON unless BOT_CHALLENGE_ENABLED=false is set deliberately. Needs TURNSTILE_SECRET_KEY when on.
+  bot-challenge:
+    enabled: ${BOT_CHALLENGE_ENABLED:false}
+    secret-key: ${TURNSTILE_SECRET_KEY:}
+  cors:
+    # FirstFood_V2_Phase2_Final_Review.md #20. Comma-separated list via
+    # CORS_ALLOWED_ORIGINS; defaults to the local Next.js dev server so
+    # `docker compose up` works without extra config. Production
+    # overrides this with the real frontend origin (see
+    # application-production.yml) - never leave this default active
+    # outside local/test.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

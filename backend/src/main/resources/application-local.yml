@@ -1,0 +1,25 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/firstfood
+    username: firstfood
+    password: firstfood
+  data:
+    redis:
+      host: redis
+      port: 6379
+
+logging:
+  level:
+    "[com.firstfood]": DEBUG
+
+app:
+  auth:
+    refresh-cookie:
+      secure: false   # plain http://localhost
+    legacy-login:
+      register-new-accounts: true   # curl-friendly one-call login for local experiments (F-12); never in production
+  jwt:
+    # F-17: no secret is committed any more. Every start generates a fresh random 256-bit one, so the profile is safe
+    # even if `local` is switched on somewhere it should not be (old tokens simply stop working on restart; sign in
+    # again). Set LOCAL_JWT_SECRET (32+ random bytes) to keep sessions across restarts. JWT_SECRET is ignored here.
+    secret: ${LOCAL_JWT_SECRET:${random.value}${random.value}}

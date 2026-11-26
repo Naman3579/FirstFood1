@@ -1,0 +1,60 @@
+# Used with Testcontainers-managed Postgres/Redis. Datasource URL is
+# normally overridden at runtime by @DynamicPropertySource in tests; the
+# values below are fallbacks for running the app manually against a local
+# throwaway database.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/firstfood_test
+    username: firstfood
+    password: firstfood
+    hikari:
+      # Every distinct test configuration (each @TestPropertySource class) keeps its own cached Spring context, and
+      # so its own pool, alive for the whole run. Ten connections each exhausts Postgres' default 100 late in the
+      # suite ("too many clients") and the NEXT context to start fails to load.
+      maximum-pool-size: 4
+      minimum-idle: 1
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+logging:
+  level:
+    "[com.firstfood]": DEBUG
+
+app:
+  auth:
+    refresh-cookie:
+      secure: false
+    legacy-login:
+      # The suite logs in through the old one-call endpoint (a new number gets both portals). F-12 closes it by default;
+      # LegacyLoginClosedIntegrationTest switches it off to test the production behaviour.
+      register-new-accounts: true
+  rate-limit:
+    # Every integration test shares one Redis and one client address (127.0.0.1), so the per-IP / per-failure
+    # budgets are effectively switched off here. The per-phone OTP request limit (app.otp) is NOT relaxed, and
+    # RateLimitIntegrationTest sets its own tight values under its own key prefix.
+    key-prefix: rl-test
+    otp-request-ip-burst: { limit: 1000000, window: 1m }
+    otp-request-ip-hourly: { limit: 1000000, window: 1h }
+    otp-verify-ip: { limit: 1000000, window: 10m }
+    otp-verify-failures-phone-ip: { limit: 1000000, window: 10m }
+    otp-verify-failures-phone: { limit: 1000000, window: 1h }
+    auth-ip: { limit: 1000000, window: 1m }
+    refresh-per-token: { limit: 1000000, window: 1m }
+    api-ip: { limit: 1000000, window: 1m }
+    account-read: { limit: 1000000, window: 1m }
+    account-write: { limit: 1000000, window: 1m }
+  sms:
+    # All integration tests share one Redis and one set of site-wide SMS counters, and together they request far more
+    # OTPs than a real day does. The F-05 budget tests set their own tiny budgets under their own key prefix.
+    hourly-budget: 1000000
+    daily-budget: 1000000
+  jwt:
+    secret: test-only-secret-do-not-use-in-production
+  jobs:
+    # Tests call JobRunner directly; the scheduler must not fire in the middle of a test.
+    enabled: false
