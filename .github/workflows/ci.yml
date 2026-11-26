@@ -2,11 +2,7 @@ name: CI
 
 on:
   push:
-<<<<<<< HEAD
     branches: [main, RefreshSession]
-=======
-    branches: [main, EmailLogin]
->>>>>>> origin/main
   pull_request:
 
 jobs:

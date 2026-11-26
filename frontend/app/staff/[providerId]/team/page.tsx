@@ -12,11 +12,7 @@ import { formatDateTime, isValidPhone, normalizePhone } from "@/lib/format";
 import { useSession } from "@/lib/session";
 
 const ROLE_INFO: Record<string, string> = {
-<<<<<<< HEAD
   OWNER: "Full control, including closing the provider and managing the team. Closing and handing over ownership need a verification code sent to the owner.",
-=======
-  OWNER: "Full control, including closing the provider and managing the team. Closing and handing over ownership need a code texted to the owner.",
->>>>>>> origin/main
   MANAGER: "Runs day-to-day: customers, plans, subscriptions, attendance and extensions.",
   WORKER: "Takes and corrects attendance and can look up customers.",
 };
@@ -210,11 +206,7 @@ export default function TeamPage() {
                 const phone = normalizePhone(phoneInput);
                 setCodeError(null);
                 if (!isValidPhone(phone)) return setPhoneError("Enter a valid 10-digit mobile number.");
-<<<<<<< HEAD
                 if (stepUpCode.length !== 6) return setCodeError("Enter the 6-digit verification code we sent you.");
-=======
-                if (stepUpCode.length !== 6) return setCodeError("Enter the 6-digit code we texted you.");
->>>>>>> origin/main
                 const offer = await run((t) => roleApi.offerOwnership(t, providerId, { phone, code: stepUpCode }), {
                   success: "Offer sent. Ownership moves only when they accept.",
                 });

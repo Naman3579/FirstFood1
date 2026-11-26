@@ -1,19 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-<<<<<<< HEAD
 import { Mail, MessageSquare } from "lucide-react";
 import { Field, Spinner } from "@/components/ui";
 import { useAction } from "@/lib/hooks";
 import { roleApi } from "@/lib/role-api";
 import { useSession } from "@/lib/session";
 import { env } from "@/lib/env";
-=======
-import { MessageSquare } from "lucide-react";
-import { Field, Spinner } from "@/components/ui";
-import { useAction } from "@/lib/hooks";
-import { roleApi } from "@/lib/role-api";
->>>>>>> origin/main
 
 const RESEND_SECONDS = 30;
 
@@ -33,13 +26,10 @@ export function OwnerStepUp({
   error?: string | null;
 }) {
   const { run, busy } = useAction();
-<<<<<<< HEAD
   const { profile } = useSession();
   // Mirrors the backend rule (StepUpServiceImpl): while SMS is off the code goes to the verified email.
   const viaEmail = !!profile?.emailVerified && (!env.phoneOtpEnabled || !profile?.phoneVerified);
   const where = viaEmail ? "email" : "phone";
-=======
->>>>>>> origin/main
   const [sent, setSent] = useState(false);
   // Every code costs the owner's hourly OTP budget, so a quick double click must not send two.
   const [wait, setWait] = useState(0);
@@ -57,11 +47,7 @@ export function OwnerStepUp({
         await roleApi.requestStepUp(t, providerId);
         return true;
       },
-<<<<<<< HEAD
       { success: `Code sent to your ${where}.` },
-=======
-      { success: "Code sent to your phone." },
->>>>>>> origin/main
     );
     if (ok) {
       setSent(true);
@@ -74,11 +60,7 @@ export function OwnerStepUp({
       <Field
         label="Verification code"
         error={error}
-<<<<<<< HEAD
         hint={`For your safety, we ${viaEmail ? "email" : "text"} a code to your own ${where} before this can happen.`}
-=======
-        hint="For your safety, we text a code to your own phone before this can happen."
->>>>>>> origin/main
       >
         {(id) => (
           <div className="row" style={{ gap: "0.5rem" }}>
@@ -94,11 +76,7 @@ export function OwnerStepUp({
               onChange={(e) => onCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
             />
             <button type="button" className="btn" disabled={busy || wait > 0} onClick={send}>
-<<<<<<< HEAD
               {busy ? <Spinner /> : viaEmail ? <Mail size={16} /> : <MessageSquare size={16} />}{" "}
-=======
-              {busy ? <Spinner /> : <MessageSquare size={16} />}{" "}
->>>>>>> origin/main
               {wait > 0 ? `Resend in ${wait}s` : sent ? "Resend code" : "Send code"}
             </button>
           </div>

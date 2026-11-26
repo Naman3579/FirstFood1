@@ -15,7 +15,6 @@ public class StepUpServiceImpl implements StepUpService {
 
     private final OtpService otpService;
     private final AccountLookupService accountLookup;
-<<<<<<< HEAD
     private final PhoneProperties phoneProperties;
 
     public StepUpServiceImpl(
@@ -23,26 +22,16 @@ public class StepUpServiceImpl implements StepUpService {
         this.otpService = otpService;
         this.accountLookup = accountLookup;
         this.phoneProperties = phoneProperties;
-=======
-
-    public StepUpServiceImpl(OtpService otpService, AccountLookupService accountLookup) {
-        this.otpService = otpService;
-        this.accountLookup = accountLookup;
->>>>>>> origin/main
     }
 
     @Override
     public void requestCode(UUID accountId) {
-<<<<<<< HEAD
         Channel channel = channelOf(accountId);
         if (channel.isEmail()) {
             otpService.requestEmailOtp(channel.destination(), OtpPurpose.OWNER_ACTION);
         } else {
             otpService.requestOtp(channel.destination(), OtpPurpose.OWNER_ACTION);
         }
-=======
-        otpService.requestOtp(phoneOf(accountId), OtpPurpose.OWNER_ACTION);
->>>>>>> origin/main
     }
 
     @Override
@@ -55,11 +44,7 @@ public class StepUpServiceImpl implements StepUpService {
             throw StepUpException.invalid();
         }
         try {
-<<<<<<< HEAD
             otpService.verifyOtp(channelOf(accountId).destination(), OtpPurpose.OWNER_ACTION, trimmed);
-=======
-            otpService.verifyOtp(phoneOf(accountId), OtpPurpose.OWNER_ACTION, trimmed);
->>>>>>> origin/main
         } catch (InvalidOtpException e) {
             throw StepUpException.invalid();
         } catch (OtpExpiredException e) {
@@ -67,7 +52,6 @@ public class StepUpServiceImpl implements StepUpService {
         }
     }
 
-<<<<<<< HEAD
     /**
      * Where the code goes - always an address ON RECORD, never one the caller supplies. While SMS is not set up
      * ({@code app.phone.verification-required=false}) the code is emailed to the verified email; once SMS is live a
@@ -86,9 +70,5 @@ public class StepUpServiceImpl implements StepUpService {
     }
 
     private record Channel(String destination, boolean isEmail) {
-=======
-    private String phoneOf(UUID accountId) {
-        return accountLookup.findPhonesByIds(List.of(accountId)).get(accountId);
->>>>>>> origin/main
     }
 }

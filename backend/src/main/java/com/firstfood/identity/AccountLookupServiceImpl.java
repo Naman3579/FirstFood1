@@ -49,7 +49,6 @@ public class AccountLookupServiceImpl implements AccountLookupService {
 
     @Override
     @Transactional(readOnly = true)
-<<<<<<< HEAD
     public Map<UUID, String> findVerifiedEmailsByIds(Collection<UUID> accountIds) {
         if (accountIds == null || accountIds.isEmpty()) {
             return Map.of();
@@ -61,8 +60,6 @@ public class AccountLookupServiceImpl implements AccountLookupService {
 
     @Override
     @Transactional(readOnly = true)
-=======
->>>>>>> origin/main
     public Map<UUID, String> findCustomerPhonesByIds(Collection<UUID> accountIds) {
         if (accountIds == null || accountIds.isEmpty()) {
             return Map.of();
