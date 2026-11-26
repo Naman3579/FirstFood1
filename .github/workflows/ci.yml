@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [RefreshSession]
+    branches: [main, RefreshSession]
   pull_request:
 
 jobs:
