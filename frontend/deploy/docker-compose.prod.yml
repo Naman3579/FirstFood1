@@ -1,0 +1,127 @@
+# Production-shaped topology:  Internet -> nginx (TLS) -> { frontend, backend } -> { postgres, redis }
+# Only nginx publishes ports. Three networks keep the tiers apart (F-10):
+#   public : nginx only (the published ports)
+#   app    : nginx, frontend, backend         (the web tier; the backend also needs outbound internet for Brevo)
+#   data   : backend, postgres, redis ONLY    (internal: no route in or out; the frontend is NOT on it, so a compromised
+#                                              Next.js process cannot reach the database or Redis)
+# Build paths below assume this file stays at frontend/deploy/ in the repo (frontend context = ../, backend = ../../backend).
+# If you move it (e.g. into infra/), change both contexts; infra/scripts/verify-compose-topology.sh fails if they stop
+# pointing at the Next.js app and the Spring Boot app.
+#
+# Required environment (e.g. in infra/.env, never committed): POSTGRES_PASSWORD, REDIS_PASSWORD, JWT_SECRET,
+# BREVO_API_KEY, BREVO_SENDER_EMAIL. REDIS_PASSWORD goes into a URL, so keep it URL-safe: `openssl rand -hex 32`.
+# F-05 (SMS pumping): also TURNSTILE_SECRET_KEY (backend) and NEXT_PUBLIC_TURNSTILE_SITE_KEY (frontend, a BUILD arg) from
+# one Cloudflare Turnstile widget. The production profile turns the challenge on by default and refuses to start without
+# the secret; set BOT_CHALLENGE_ENABLED=false to run without it on purpose. SMS_* tune the country allow-list and budgets.
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./nginx/firstfood.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on: [frontend, backend]
+    networks:
+      public: {}
+      app:
+        # F-01: a FIXED address, so the backend can trust exactly this one hop (TRUSTED_PROXY_CIDRS below) and no other
+        # container. Must sit inside the pinned subnet at the bottom of this file.
+        ipv4_address: 172.28.10.2
+
+  frontend:
+    # NEXT_PUBLIC_* values and the /api rewrite are compiled in at BUILD time, so they are build args, not runtime env
+    # (as runtime env the build fails on purpose). Same-origin: the browser calls /api/v1/... on the page's own host.
+    build:
+      context: ..                    # <- the folder holding this deploy/ directory (the Next.js app)
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ""
+        BACKEND_ORIGIN: http://backend:8080
+        # F-05: public Turnstile SITE key (not a secret). Empty = no widget, which only works with the backend challenge off.
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+        # Phone sign-in needs an SMS provider + DLT; leave empty/false until then (email sign-in is always on).
+        NEXT_PUBLIC_PHONE_OTP_ENABLED: ${NEXT_PUBLIC_PHONE_OTP_ENABLED:-}
+        # "Continue with Google": public OAuth client id (same value as GOOGLE_CLIENT_ID below). Empty = no Google button.
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    expose: ["3000"]
+    networks: [app]            # deliberately NOT on `data`
+
+  backend:
+    build:
+      context: ../../backend         # Spring Boot app (pom.xml + Dockerfile); NOT ../, which is the Next.js app
+    expose: ["8080"]
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DATABASE_URL: jdbc:postgresql://postgres:5432/firstfood
+      DATABASE_USERNAME: firstfood
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      # Password in the URL (Spring Boot reads it from there). Use rediss:// instead when Redis is a managed service
+      # reached over a network you do not control (Upstash etc.); on the internal `data` network plain redis:// is fine.
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      BREVO_API_KEY: ${BREVO_API_KEY:?set BREVO_API_KEY}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:?set BREVO_SENDER_EMAIL}
+      # Browsers are same-origin behind nginx, so CORS is not exercised; the startup check still wants a value.
+      CORS_ALLOWED_ORIGINS: https://firstfood.store
+      # F-01: nginx is the only hop allowed to speak for the client in X-Forwarded-For (nginx overwrites that header
+      # with the real $remote_addr). Without this every user shares one rate-limit bucket - the nginx container's
+      # address. If a CDN/load balancer sits IN FRONT of nginx, also add `realip` to nginx (see firstfood.conf) so
+      # $remote_addr is the true client; this value stays the nginx address either way.
+      # The production profile refuses to start if this variable is missing.
+      TRUSTED_PROXY_CIDRS: 172.28.10.2/32
+      # F-05: bot challenge on the public OTP request, and the SMS spend controls. The backend refuses to start with the
+      # challenge on and no secret (readable message), so a forgotten key cannot silently leave SMS unprotected.
+      BOT_CHALLENGE_ENABLED: ${BOT_CHALLENGE_ENABLED:-true}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      # "Continue with Google": the backend only accepts Google ID tokens issued for this client id. Empty = switched off.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      SMS_ALLOWED_COUNTRY_CODES: ${SMS_ALLOWED_COUNTRY_CODES:-91}
+      SMS_HOURLY_BUDGET: ${SMS_HOURLY_BUDGET:-60}
+      SMS_DAILY_BUDGET: ${SMS_DAILY_BUDGET:-300}
+      # false (launch): a phone number can be added without a code. Set true once SMS/DLT works, together with
+      # NEXT_PUBLIC_PHONE_OTP_ENABLED=true on the frontend build: numbers must then be verified with a code.
+      PHONE_VERIFICATION_REQUIRED: ${PHONE_VERIFICATION_REQUIRED:-false}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [app, data]
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: firstfood
+      POSTGRES_USER: firstfood
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firstfood -d firstfood"]
+      interval: 5s
+      retries: 10
+    networks: [data]
+
+  redis:
+    image: valkey/valkey:8-alpine
+    # F-10: require a password. Rate-limit counters (and therefore login throttling) must not be writable by anything
+    # that merely shares a network with Redis. Shell form so the password comes from the environment, not the image.
+    command: ["sh", "-c", "exec valkey-server --requirepass \"$$REDIS_PASSWORD\" --save '' --appendonly no"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [data]
+
+networks:
+  public: {}
+  app:
+    ipam:
+      config:
+        - subnet: 172.28.10.0/24   # pinned so nginx's fixed address above is stable; change both together
+  data:
+    internal: true                 # no route to or from the internet: only backend, postgres and redis are on it
+
+volumes:
+  pgdata: {}

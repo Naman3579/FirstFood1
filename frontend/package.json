@@ -1,0 +1,32 @@
+{
+  "name": "firstfood-v2-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "smoke:proxy": "node scripts/proxy-smoke.mjs",
+    "mock": "node scripts/mock-api.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/plus-jakarta-sans": "5.3.0",
+    "lucide-react": "0.546.0",
+    "next": "16.4.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.3",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0"
+  }
+}
